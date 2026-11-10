@@ -9,7 +9,7 @@ const MAX_LOG = 300 // entries kept per card
 const CARD_CHARS = 120_000 // total text kept per card; oldest entries go first
 const OUT_MAX = 4000 // one tool output: head and tail kept past this
 const TEXT_MAX = 8000 // one block of streamed text or thinking
-const MIN_CARD_ROWS = 5
+const MIN_CARD_ROWS = 6
 
 // Bump the tag whenever AgentCard's fields change: stored values outlive a reload.
 const agents = atom({ plugin: 'agent-board', key: 'agents' } as const, [], {
@@ -89,6 +89,29 @@ function fmtTokens(n: number): string {
 }
 
 const shortModel = (m: string) => m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
+
+type Usage = {
+  model?: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}
+
+// Record a model call's size and model on a card.
+const withUsage = (c: AgentCard, u: Usage | null | undefined): AgentCard =>
+  u
+    ? {
+        ...c,
+        tokens:
+          u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens,
+        model: u.model || c.model,
+      }
+    : c
+
+// Each model family gets its own colour on the details line.
+const modelColor = (m: string) =>
+  /opus/.test(m) ? 'magenta' : /sonnet/.test(m) ? 'blue' : /haiku/.test(m) ? 'green' : /fable/.test(m) ? 'yellow' : 'cyan'
 
 const isActive = (st: AgentStatusWord) => st === 'running' || st === 'waiting' || st === 'idle'
 
@@ -392,19 +415,12 @@ export const register: Register = on => {
         await patch($, id, c => settleLive(c))
       } else if (chunk.kind === 'stop') {
         await flush($, id, true)
-        await patch($, id, c => settleLive(c))
+        await patch($, id, c => withUsage(settleLive(c), chunk.usage))
       }
       yield chunk
     }
     await flush($, id, true)
-    const u = result?.usage
-    await patch($, id, c => {
-      const card = settleLive(c)
-      if (!u) return card
-      const tokens =
-        u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
-      return { ...card, tokens, model: u.model || card.model }
-    })
+    await patch($, id, c => withUsage(settleLive(c), result?.usage))
     return result
   })
 
@@ -455,7 +471,7 @@ export const register: Register = on => {
         if (ans && !(last && last.kind === 'text' && oneLine(ans).endsWith(said(last.text)))) {
           card = pushLog(card, { kind: 'text', text: ans.slice(-TEXT_MAX) })
         }
-        return { ...card, status, endedAt: now }
+        return { ...withUsage(card, e.usage), status, endedAt: now }
       })
     }
     return next(e)
@@ -545,20 +561,13 @@ export const register: Register = on => {
       const isViewed = viewing === c.id
       const viewLabel = isViewed ? 'Back' : 'View'
       const head = inner - (viewLabel.length + 5) // room left beside the "[ View ]" button
-      const bodyRows = Math.max(0, cardH - 4) // two border rows, title and details lines
+      const bodyRows = Math.max(0, cardH - 5) // two border rows, title, details and rule lines
       const look = statusLook(c)
       const active = isActive(c.status)
       const elapsed = fmtElapsed((c.endedAt ?? now) - c.startedAt)
       // The details line: model and tokens first, so they stay when it's cut short.
-      const meta = [
-        c.model ? shortModel(c.model) : 'model …',
-        c.tokens !== undefined ? fmtTokens(c.tokens) : undefined,
-        `${c.tools} tool${c.tools === 1 ? '' : 's'}`,
-        elapsed,
-        c.type,
-      ]
-        .filter(Boolean)
-        .join(' · ')
+      const modelName = c.model ? shortModel(c.model) : 'model …'
+      const rest = [`${c.tools} tool${c.tools === 1 ? '' : 's'}`, elapsed, c.type].join(' · ')
       const descMax = Math.max(8, head - 2)
 
       // Every line of the card's history, wrapped to the card's width.
@@ -609,8 +618,27 @@ export const register: Register = on => {
               onPress={() => viewAgent($, isViewed ? undefined : c.id)}
             />
           </Box>
-          <Text dimColor wrap="truncate-end">
-            {clip('  ' + meta, inner)}
+          <Box flexDirection="row" overflow="hidden">
+            <Text> </Text>
+            <Text
+              bold
+              inverse={active}
+              color={c.model ? modelColor(c.model) : 'gray'}
+              dimColor={!active}
+            >
+              {` ${modelName} `}
+            </Text>
+            {c.tokens !== undefined && (
+              <Text bold color="yellow" dimColor={!active}>
+                {`  ${fmtTokens(c.tokens)}`}
+              </Text>
+            )}
+            <Text color="gray" wrap="truncate-end">
+              {`  ${rest}`}
+            </Text>
+          </Box>
+          <Text color="gray" dimColor wrap="truncate-end">
+            {'─'.repeat(Math.max(0, inner))}
           </Text>
           {lines.map(l => (
             <Text

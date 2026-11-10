@@ -238,7 +238,7 @@ test('each card shows its model and tokens', async ($, on) => {
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 40 } })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-  const meta = texts.find(t => /sonnet-5-5/.test(t))
-  expect(meta).toContain('41.5k tokens')
+  expect(texts).toContain(' sonnet-5-5 ')
+  expect(texts).toContain('  41.5k tokens')
   await ui.unmount()
 })
