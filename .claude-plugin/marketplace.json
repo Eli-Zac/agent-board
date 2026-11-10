@@ -1,0 +1,5 @@
+{
+  "name": "local-mods",
+  "owner": { "name": "Eli-Zac" },
+  "plugins": [{ "name": "agent-board", "source": "./" }]
+}
