@@ -5,13 +5,22 @@ import type { AgentCard, AgentStatusWord, BoardLine } from '../types'
 
 const PANE = 'agent-board'
 const TITLE = 'Agent Board'
-const MAX_LOG = 80
+const MAX_LOG = 300 // entries kept per card
+const CARD_CHARS = 120_000 // total text kept per card; oldest entries go first
+const OUT_MAX = 4000 // one tool output: head and tail kept past this
+const TEXT_MAX = 8000 // one block of streamed text or thinking
 const MIN_CARD_ROWS = 4
 
 // Bump the tag whenever AgentCard's fields change: stored values outlive a reload.
 const agents = atom({ plugin: 'agent-board', key: 'agents' } as const, [], {
   shape: 'agents-1',
 })
+
+// Per-card scroll position (see the contract). Not stored across sessions.
+const scrollTop = atom({ plugin: 'agent-board', key: 'scrollTop' } as const, {})
+
+// What each card last drew: its wrapped line count and body rows, for the scroll hook.
+const geometry = new Map<string, { total: number; rows: number }>()
 
 // ---------- helpers ----------
 
@@ -116,16 +125,29 @@ async function patch(
   })
 }
 
-const pushLog = (c: AgentCard, line: BoardLine): AgentCard => ({
-  ...c,
-  log: [...c.log, line].slice(-MAX_LOG),
-})
+const pushLog = (c: AgentCard, line: BoardLine): AgentCard => {
+  let log = [...c.log, line].slice(-MAX_LOG)
+  let size = log.reduce((n, l) => n + l.text.length, 0)
+  while (size > CARD_CHARS && log.length > 1) {
+    size -= log[0]!.text.length
+    log = log.slice(1)
+  }
+  return { ...c, log }
+}
+
+// A tool's output as the agent read it; very long output keeps its head and tail.
+function shapeOutput(text: string): string {
+  const t = text.replace(/\r\n?/g, '\n').replace(/\s+$/, '')
+  if (t.length <= OUT_MAX) return t
+  const half = Math.floor(OUT_MAX / 2)
+  return `${t.slice(0, half)}\n… ${t.length - OUT_MAX} characters cut …\n${t.slice(-half)}`
+}
 
 // Move the streaming buffer into the log as a finished line.
 const settleLive = (c: AgentCard): AgentCard => {
   if (c.liveKind === 'none' || c.live.trim() === '') return { ...c, live: '', liveKind: 'none' }
   const kind = c.liveKind === 'think' ? 'think' : 'text'
-  return { ...pushLog(c, { kind, text: c.live.trim().slice(-600) }), live: '', liveKind: 'none' }
+  return { ...pushLog(c, { kind, text: c.live.trim().slice(-TEXT_MAX) }), live: '', liveKind: 'none' }
 }
 
 // Module-level buffers for streaming text (flushed to state on a throttle).
@@ -145,10 +167,39 @@ async function flush($: EngineInterface, id: string, force = false) {
     return {
       ...card,
       liveKind: b.kind,
-      live: (card.live + b.text).slice(-2000),
+      live: (card.live + b.text).slice(-TEXT_MAX),
     }
   })
 }
+
+// Which cards show and how tall each is, for a pane body of `paneRows` rows.
+function layout(list: readonly AgentCard[], paneRows: number) {
+  // Active agents first (oldest first), then finished (newest first).
+  const active = list.filter(c => isActive(c.status)).sort((a, b) => a.startedAt - b.startedAt)
+  const done = list
+    .filter(c => !isActive(c.status))
+    .sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt))
+  const ordered = [...active, ...done]
+  const hasHeader = done.length > 0
+  const rows = hasHeader ? paneRows - 1 : paneRows
+
+  const fit = Math.max(1, Math.floor(rows / MIN_CARD_ROWS))
+  let shown = ordered
+  let room = rows
+  if (ordered.length > fit) {
+    shown = ordered.slice(0, fit)
+    // Reserve one row for the "+n more" footer.
+    while (shown.length > 1 && shown.length * MIN_CARD_ROWS > rows - 1) shown = shown.slice(0, -1)
+    room = rows - 1
+  }
+  // Split the height evenly; hand the remainder out one row at a time.
+  const base = Math.floor(room / Math.max(1, shown.length))
+  const extra = room - base * shown.length
+  const heights = shown.map((_, i) => base + (i < extra ? 1 : 0))
+  return { active, done, shown, heights, hidden: ordered.length - shown.length, hasHeader }
+}
+
+const paneRowsOf = (bodyRows: number | undefined) => Math.max(MIN_CARD_ROWS + 1, bodyRows ?? 24)
 
 async function openBoard($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE })
@@ -296,8 +347,14 @@ export const register: Register = on => {
       pushLog({ ...settleLive(c), tools: c.tools + 1, status: 'running' }, { kind: 'tool', text: '▸ ' + label }),
     )
     const ran = await next(e)
-    if ('isError' in ran && ran.isError) {
-      await patch($, id, c => pushLog(c, { kind: 'info', text: `✗ ${e.tool} failed` }))
+    if (ran.deny !== undefined) {
+      await patch($, id, c => pushLog(c, { kind: 'err', text: `✗ refused: ${shapeOutput(ran.deny)}` }))
+    } else if (ran.isError) {
+      const why = ran.text ?? (typeof ran.result === 'string' ? ran.result : '')
+      await patch($, id, c => pushLog(c, { kind: 'err', text: `✗ ${shapeOutput(why) || e.tool + ' failed'}` }))
+    } else if (ran.text && ran.text.trim() !== '') {
+      const out = shapeOutput(ran.text)
+      await patch($, id, c => pushLog(c, { kind: 'out', text: out }))
     }
     return ran
   })
@@ -315,7 +372,7 @@ export const register: Register = on => {
         const ans = e.answer.trim()
         const last = card.log[card.log.length - 1]
         if (ans && !(last && last.kind === 'text' && ans.endsWith(last.text.slice(-50)))) {
-          card = pushLog(card, { kind: 'text', text: ans.slice(-600) })
+          card = pushLog(card, { kind: 'text', text: ans.slice(-TEXT_MAX) })
         }
         return { ...card, status, endedAt: now }
       })
@@ -323,14 +380,39 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // ---------- scrolling ----------
+
+  // The wheel over a card scrolls that card's own history. Scrolling down past
+  // the newest line goes back to following live output.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!e.pointer) return next(e)
+    const L = layout(await read($, agents), paneRowsOf(e.bodyRows))
+    let row = e.pointer.row - (L.hasHeader ? 1 : 0)
+    const i = L.heights.findIndex(h => (row < h ? true : ((row -= h), false)))
+    const card = i === -1 ? undefined : L.shown[i]
+    const g = card && geometry.get(card.id)
+    if (!card || !g || g.total <= g.rows) return {}
+    const id = card.id
+    await update($, scrollTop, m => {
+      const follow = g.total - g.rows
+      const top = (m[id] ?? follow) + e.by
+      const out = { ...m }
+      if (top > follow) delete out[id]
+      else out[id] = Math.max(0, top)
+      return out
+    })
+    return {}
+  })
+
   // ---------- drawing ----------
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const list = await read($, agents)
+    const scrolled = await read($, scrollTop)
     const now = await $.clock.now()
 
-    const paneRows = Math.max(MIN_CARD_ROWS + 1, e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 24)
+    const paneRows = paneRowsOf(e.props.scroll?.bodyRows ?? e.viewport?.rows)
     const cols = Math.max(20, e.props.bodyColumns ?? e.viewport?.columns ?? 50)
 
     if (list.length === 0) {
@@ -342,43 +424,20 @@ export const register: Register = on => {
       )
     }
 
-    // Active agents first (oldest first), then finished (newest first).
-    const active = list.filter(c => isActive(c.status)).sort((a, b) => a.startedAt - b.startedAt)
-    const done = list
-      .filter(c => !isActive(c.status))
-      .sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt))
-    const ordered = [...active, ...done]
+    const { active, done, shown, heights, hidden, hasHeader } = layout(list, paneRows)
 
     // Header row with the clear button, only while something finished is on the board.
-    const header =
-      done.length > 0 ? (
-        <Box flexDirection="row">
-          <Text dimColor>{`${active.length} running · ${done.length} finished  `}</Text>
-          <Button
-            key="clear-completed"
-            label="Clear completed"
-            hotkey="c"
-            onPress={() => clearFinished($)}
-          />
-        </Box>
-      ) : null
-    const rows = header ? paneRows - 1 : paneRows
-
-    const fit = Math.max(1, Math.floor(rows / MIN_CARD_ROWS))
-    let shown = ordered
-    let hidden = 0
-    let room = rows
-    if (ordered.length > fit) {
-      shown = ordered.slice(0, Math.max(1, fit - 0))
-      // Reserve one row for the "+n more" footer.
-      while (shown.length > 1 && shown.length * MIN_CARD_ROWS > rows - 1) shown = shown.slice(0, -1)
-      hidden = ordered.length - shown.length
-      room = rows - 1
-    }
-
-    // Split the height evenly; hand the remainder out one row at a time.
-    const base = Math.floor(room / shown.length)
-    const extra = room - base * shown.length
+    const header = hasHeader ? (
+      <Box flexDirection="row">
+        <Text dimColor>{`${active.length} running · ${done.length} finished  `}</Text>
+        <Button
+          key="clear-completed"
+          label="Clear completed"
+          hotkey="c"
+          onPress={() => clearFinished($)}
+        />
+      </Box>
+    ) : null
 
     const statusLook = (c: AgentCard) => {
       switch (c.status) {
@@ -400,7 +459,7 @@ export const register: Register = on => {
     const viewing = e.props.view?.agentId
 
     const cards = shown.map((c, i) => {
-      const cardH = base + (i < extra ? 1 : 0)
+      const cardH = heights[i]!
       const inner = cols - 4 // border + padding
       const isViewed = viewing === c.id
       const viewLabel = isViewed ? 'Back' : 'View'
@@ -422,20 +481,30 @@ export const register: Register = on => {
       }
       const descMax = Math.max(8, head - 2 - (meta ? meta.length + 2 : 0))
 
-      // Build display lines from the log plus the streaming tail.
-      const lines: { kind: BoardLine['kind']; text: string }[] = []
+      // Every line of the card's history, wrapped to the card's width.
+      const all: { kind: BoardLine['kind']; text: string }[] = []
       const entries: BoardLine[] =
         c.liveKind !== 'none' && c.live.trim() !== ''
           ? [...c.log, { kind: c.liveKind === 'think' ? 'think' : 'text', text: c.live }]
           : c.log
-      for (let k = entries.length - 1; k >= 0 && lines.length < bodyRows; k--) {
-        const ent = entries[k]!
-        const wrapped =
-          ent.kind === 'tool' ? [clip(ent.text, inner)] : wrap(ent.text, inner)
-        for (let j = wrapped.length - 1; j >= 0 && lines.length < bodyRows; j--) {
-          lines.unshift({ kind: ent.kind, text: wrapped[j]! })
-        }
+      for (const ent of entries) {
+        if (ent.kind === 'tool') all.push({ kind: 'tool', text: clip(ent.text, inner) })
+        else if (ent.kind === 'out' || ent.kind === 'err') {
+          for (const t of wrap(ent.text, inner - 2)) all.push({ kind: ent.kind, text: '  ' + t })
+        } else for (const t of wrap(ent.text, inner)) all.push({ kind: ent.kind, text: t })
       }
+      geometry.set(c.id, { total: all.length, rows: bodyRows })
+
+      // Follow the newest lines, or show where the person scrolled to (one row
+      // then goes to the "newer lines" bar).
+      const top = scrolled[c.id]
+      const isBack = top !== undefined && all.length > bodyRows && bodyRows >= 2
+      const windowRows = isBack ? bodyRows - 1 : bodyRows
+      const start = isBack
+        ? Math.min(Math.max(0, top), all.length - windowRows)
+        : Math.max(0, all.length - bodyRows)
+      const lines = all.slice(start, start + windowRows)
+      const newer = all.length - (start + lines.length)
 
       return (
         <Box
@@ -466,13 +535,31 @@ export const register: Register = on => {
           {lines.map(l => (
             <Text
               wrap="truncate-end"
-              color={l.kind === 'tool' ? 'cyan' : l.kind === 'info' ? 'yellow' : undefined}
-              dimColor={l.kind === 'think' || !active}
+              color={
+                l.kind === 'tool' ? 'cyan' : l.kind === 'info' ? 'yellow' : l.kind === 'err' ? 'red' : undefined
+              }
+              dimColor={l.kind === 'think' || l.kind === 'out' || !active}
               italic={l.kind === 'think'}
             >
               {l.text}
             </Text>
           ))}
+          {isBack && (
+            <Box flexDirection="row">
+              <Text color="magenta">{`↓ ${newer} newer line${newer === 1 ? '' : 's'}  `}</Text>
+              <Button
+                key={`latest-${c.id}`}
+                label="Latest"
+                onPress={() =>
+                  update($, scrollTop, m => {
+                    const out = { ...m }
+                    delete out[c.id]
+                    return out
+                  })
+                }
+              />
+            </Box>
+          )}
         </Box>
       )
     })

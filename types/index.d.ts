@@ -1,4 +1,4 @@
-export type LineKind = 'tool' | 'text' | 'think' | 'info'
+export type LineKind = 'tool' | 'out' | 'err' | 'text' | 'think' | 'info'
 export type BoardLine = { kind: LineKind; text: string }
 export type AgentStatusWord = 'running' | 'waiting' | 'idle' | 'done' | 'failed' | 'killed'
 export type AgentCard = {
@@ -17,6 +17,10 @@ export type AgentCard = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'agent-board': { agents: Shaped<AgentCard[]> }
+    'agent-board': {
+      agents: Shaped<AgentCard[]>
+      /** Per agent id: the first wrapped line a scrolled-back card shows. Absent = following live output. */
+      scrollTop: Record<string, number>
+    }
   }
 }

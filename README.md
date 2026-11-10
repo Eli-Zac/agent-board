@@ -3,13 +3,18 @@
 A Claude Code mod that opens a side panel called **Agent Board** in every session. Each subagent the
 session starts gets its own card, and the cards split the panel's full height evenly. A card shows the
 agent's status, task description, type, model, tool count and elapsed time, followed by a live feed of
-its work: tool calls as they run, streamed text and thinking, and its final answer.
+its work: each tool call with its full output underneath (errors in red), streamed text and thinking,
+and its final answer.
 
 ![Agent Board panel: three subagent cards with View buttons, the first one in view with a Back button, and the Clear completed button](docs/panel.svg)
 
 <sub>Illustration of the panel, not a live capture.</sub>
 
 - `/agent-board` reopens the panel if you closed it.
+- Scroll with the mouse wheel over a card to go back through that agent's whole history. While
+  you're scrolled back, the card shows how many newer lines there are and a **Latest** button that
+  returns to live output. A card keeps its last 300 entries (about 120,000 characters); a single
+  tool output over 4,000 characters keeps its start and end.
 - **View** on a card switches the main view to that agent's transcript, as picking it from the tasks
   list does. The card you're viewing gets a magenta border, and its button changes to **Back**, which
   returns to the main conversation.

@@ -113,3 +113,32 @@ test('View switches the main view to that agent, and Back returns', async ($, on
   await viewed.unmount()
   expect(views).toEqual(['a2', 'a2', undefined])
 })
+
+test('a tool call shows its output under the command, and errors show too', async ($, on) => {
+  mock.clock(on)
+  on('agent.list', () => ({ value: [] }))
+  on('command.register', () => ({ value: { command: 'agent-board' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'a1' }))
+  on('tool.call', (_, e) =>
+    e.tool === 'Bash'
+      ? { result: {}, text: 'README.md\nsrc\npackage.json' }
+      : { isError: true, result: 'File does not exist.', text: 'File does not exist.' },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ prompt: 'Look around', description: 'Look around' })
+  await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/nope.txt', agentId: 'a1' } as never)
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    const i = texts.indexOf('▸ Bash ls')
+    expect(i).toBeGreaterThan(-1)
+    expect(texts.slice(i + 1, i + 4)).toEqual(['  README.md', '  src', '  package.json'])
+    expect(texts).toContain('  ✗ File does not exist.')
+    await ui.unmount()
+  }
+})
