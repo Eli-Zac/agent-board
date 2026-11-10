@@ -195,3 +195,30 @@ test('a resumed agent keeps its title and tool count and runs again', async ($, 
   expect(texts).toContain('↪ ok you are done')
   await ui.unmount()
 })
+
+test('cleared agents stay cleared while the engine still lists them', async ($, on) => {
+  const clock = mock.clock(on)
+  let live = [{ id: 'a2', status: 'completed', description: 'All done', type: 'agent' }]
+  on('agent.list', () => ({ value: live }))
+  on('command.register', () => ({ value: { command: 'agent-board' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(1100)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'clear-completed' })
+  await ui.unmount()
+  await clock.advance(3100)
+
+  const after = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await after.find({ type: 'Text', text: /All done/ })).toBeUndefined()
+  await after.unmount()
+
+  // It comes back if it runs again.
+  live = [{ ...live[0]!, status: 'running' }]
+  await clock.advance(1100)
+  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await again.find({ type: 'Text', text: /All done/ })).toBeDefined()
+  await again.unmount()
+})

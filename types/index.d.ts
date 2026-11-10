@@ -21,6 +21,8 @@ declare module 'claude-code' {
       agents: Shaped<AgentCard[]>
       /** Per agent id: the first wrapped line a scrolled-back card shows. Absent = following live output. */
       scrollTop: Record<string, number>
+      /** Agent ids cleared with Clear completed; the tick doesn't bring these back while they stay finished. */
+      dismissed: Record<string, true>
     }
   }
 }

@@ -19,6 +19,10 @@ const agents = atom({ plugin: 'agent-board', key: 'agents' } as const, [], {
 // Per-card scroll position (see the contract). Not stored across sessions.
 const scrollTop = atom({ plugin: 'agent-board', key: 'scrollTop' } as const, {})
 
+// Agents cleared from the board. The engine keeps listing finished agents, so the
+// tick skips these until one runs again.
+const dismissed = atom({ plugin: 'agent-board', key: 'dismissed' } as const, {})
+
 // What each card last drew: its wrapped line count and body rows, for the scroll hook.
 const geometry = new Map<string, { total: number; rows: number }>()
 
@@ -80,8 +84,25 @@ function fmtElapsed(ms: number): string {
 
 const isActive = (st: AgentStatusWord) => st === 'running' || st === 'waiting' || st === 'idle'
 
-const clearFinished = ($: EngineInterface) =>
-  update($, agents, list => list.filter(c => isActive(c.status)))
+async function clearFinished($: EngineInterface) {
+  const gone = (await read($, agents)).filter(c => !isActive(c.status)).map(c => c.id)
+  if (gone.length > 0) {
+    await update($, dismissed, m => {
+      const out = { ...m }
+      for (const id of gone) out[id] = true
+      return out
+    })
+  }
+  await update($, agents, list => list.filter(c => isActive(c.status)))
+}
+
+const undismiss = ($: EngineInterface, id: string) =>
+  update($, dismissed, m => {
+    if (!m[id]) return m
+    const out = { ...m }
+    delete out[id]
+    return out
+  })
 
 // Switch the main view to an agent's transcript, or back to the main conversation.
 async function viewAgent($: EngineInterface, agentId: string | undefined) {
@@ -242,7 +263,12 @@ export const register: Register = on => {
         }
         const now = await $.clock.now()
         const known = new Set(list.map(c => c.id))
-        const fresh = live.filter(a => !known.has(a.id))
+        const hidden = await read($, dismissed)
+        // A cleared agent stays off the board unless it starts running again.
+        const fresh = live.filter(
+          a => !known.has(a.id) && !(hidden[a.id] && !isActive(mapStatus(a.status))),
+        )
+        for (const a of fresh) if (hidden[a.id]) await undismiss($, a.id)
         const changed = live.some(a => {
           const c = list.find(x => x.id === a.id)
           return c !== undefined && c.status !== mapStatus(a.status)
@@ -296,6 +322,7 @@ export const register: Register = on => {
     if (r.agentId) {
       const id = r.agentId
       const now = await $.clock.now()
+      await undismiss($, id)
       const resumed = e.resume !== undefined
       const prompt = oneLine(e.prompt)
       await update($, agents, list => {
