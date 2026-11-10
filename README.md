@@ -5,6 +5,10 @@ session starts gets its own card, and the cards split the panel's full height ev
 agent's status, task description, type, model, tool count and elapsed time, followed by a live feed of
 its work: tool calls as they run, streamed text and thinking, and its final answer.
 
+![Agent Board panel with two running subagents and one finished, and the Clear completed button](docs/panel.svg)
+
+<sub>Illustration of the panel, not a live capture.</sub>
+
 - `/agent-board` reopens the panel if you closed it.
 - The **Clear completed** button at the top of the panel (or `c` while the panel has focus) removes
   finished, failed and stopped agents. It shows only while there are finished agents.
