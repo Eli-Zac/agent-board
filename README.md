@@ -5,7 +5,7 @@ session starts gets its own card, and the cards split the panel's full height ev
 agent's status, task description, type, model, tool count and elapsed time, followed by a live feed of
 its work: tool calls as they run, streamed text and thinking, and its final answer.
 
-![Agent Board panel with two running subagents and one finished, and the Clear completed button](docs/panel.svg)
+![Agent Board panel: three subagent cards with View buttons, the first one in view with a Back button, and the Clear completed button](docs/panel.svg)
 
 <sub>Illustration of the panel, not a live capture.</sub>
 

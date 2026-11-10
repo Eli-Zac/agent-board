@@ -6,10 +6,12 @@
 <text x="16.0" y="64.0" fill="#7d8590" xml:space="preserve">2 running · 1 finished  </text>
 <rect x="214.6" y="51" width="165.6" height="18" rx="4" fill="#2d333b"/>
 <text x="217.6" y="64.0" fill="#d7dae0" font-weight="700" xml:space="preserve">[ Clear completed ]</text>
-<rect x="16" y="74" width="520.8" height="136" rx="8" fill="none" stroke="#3fb950" stroke-width="1.4"/>
+<rect x="16" y="74" width="520.8" height="136" rx="8" fill="none" stroke="#d2a8ff" stroke-width="2"/>
 <text x="32.8" y="96.0" fill="#3fb950" font-weight="700" xml:space="preserve">●</text>
 <text x="49.6" y="96.0" fill="#d7dae0" font-weight="700" xml:space="preserve">Scan repo for TODOs</text>
-<text x="234.4" y="96.0" fill="#7d8590" xml:space="preserve">opus-5-5 · Explore · 7 tools · 41s</text>
+<text x="226.0" y="96.0" fill="#7d8590" xml:space="preserve">Explore · 7 tools · 41s</text>
+<rect x="449.8" y="82" width="73.2" height="18" rx="4" fill="#2d333b"/>
+<text x="452.8" y="96.0" fill="#d2a8ff" font-weight="700" xml:space="preserve">[ Back ]</text>
 <text x="32.8" y="116.0" fill="#39c5cf" xml:space="preserve">▸ Grep TODO|FIXME</text>
 <text x="32.8" y="136.0" fill="#39c5cf" xml:space="preserve">▸ Read src/server/routes.ts</text>
 <text x="32.8" y="156.0" fill="#7d8590" font-style="italic" xml:space="preserve">Three of these are in the auth module; group them.</text>
@@ -18,14 +20,18 @@
 <rect x="16" y="212" width="520.8" height="96" rx="8" fill="none" stroke="#3fb950" stroke-width="1.4"/>
 <text x="32.8" y="234.0" fill="#3fb950" font-weight="700" xml:space="preserve">●</text>
 <text x="49.6" y="234.0" fill="#d7dae0" font-weight="700" xml:space="preserve">Write tests for the parser</text>
-<text x="259.6" y="234.0" fill="#7d8590" xml:space="preserve">general-purpose · 3 tools · 18s</text>
+<text x="284.8" y="234.0" fill="#7d8590" xml:space="preserve">3 tools · 18s</text>
+<rect x="449.8" y="220" width="73.2" height="18" rx="4" fill="#2d333b"/>
+<text x="452.8" y="234.0" fill="#d7dae0" font-weight="700" xml:space="preserve">[ View ]</text>
 <text x="32.8" y="254.0" fill="#39c5cf" xml:space="preserve">▸ Read src/parser/index.ts</text>
 <text x="32.8" y="274.0" fill="#39c5cf" xml:space="preserve">▸ Write tests/parser.test.ts</text>
 <text x="32.8" y="294.0" fill="#39c5cf" xml:space="preserve">▸ Bash Run the parser tests  $ npm test -- parser</text>
 <rect x="16" y="310" width="520.8" height="76" rx="8" fill="none" stroke="#6e7681" stroke-width="1.4"/>
 <text x="32.8" y="332.0" fill="#6e7681" font-weight="700" xml:space="preserve">✓</text>
 <text x="49.6" y="332.0" fill="#7d8590" xml:space="preserve">Check dependency versions</text>
-<text x="310.0" y="332.0" fill="#7d8590" xml:space="preserve">Explore · 5 tools · 1m02s</text>
+<text x="276.4" y="332.0" fill="#7d8590" xml:space="preserve">5 tools · 1m02s</text>
+<rect x="449.8" y="318" width="73.2" height="18" rx="4" fill="#2d333b"/>
+<text x="452.8" y="332.0" fill="#d7dae0" font-weight="700" xml:space="preserve">[ View ]</text>
 <text x="32.8" y="352.0" fill="#39c5cf" opacity="0.75" xml:space="preserve">▸ Read package.json</text>
 <text x="32.8" y="372.0" fill="#7d8590" opacity="0.75" xml:space="preserve">All dependencies are current except two dev tools.</text>
 </svg>
