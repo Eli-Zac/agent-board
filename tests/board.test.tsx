@@ -80,3 +80,36 @@ test('Clear completed removes finished agents and keeps running ones', async ($,
   expect(await after.find({ key: 'clear-completed' })).toBeUndefined()
   await after.unmount()
 })
+
+test('View switches the main view to that agent, and Back returns', async ($, on) => {
+  mock.clock(on)
+  on('agent.list', () => ({ value: [] }))
+  on('command.register', () => ({ value: { command: 'agent-board' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `a${++n}` }))
+  const views: (string | undefined)[] = []
+  on('ui.view', (_, e) => {
+    views.push(e.agentId)
+    return { value: {} }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ prompt: 'Look at the repo', description: 'Scan repo' })
+  await $.agent.spawn({ prompt: 'Write tests', description: 'Write tests' })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'view-a2' })
+    await ui.unmount()
+  }
+  expect(views).toEqual(['a2', 'a2'])
+
+  const viewed = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, view: { agentId: 'a2' } } })
+  expect((await viewed.find({ key: 'view-a2' }))?.text).toContain('Back')
+  expect((await viewed.find({ key: 'view-a1' }))?.text).toContain('View')
+  await viewed.press({ key: 'view-a2' })
+  await viewed.unmount()
+  expect(views).toEqual(['a2', 'a2', undefined])
+})

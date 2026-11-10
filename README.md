@@ -10,6 +10,9 @@ its work: tool calls as they run, streamed text and thinking, and its final answ
 <sub>Illustration of the panel, not a live capture.</sub>
 
 - `/agent-board` reopens the panel if you closed it.
+- **View** on a card switches the main view to that agent's transcript, as picking it from the tasks
+  list does. The card you're viewing gets a magenta border, and its button changes to **Back**, which
+  returns to the main conversation.
 - The **Clear completed** button at the top of the panel (or `c` while the panel has focus) removes
   finished, failed and stopped agents. It shows only while there are finished agents.
 - `/agent-board clear` does the same from the prompt.

@@ -59,6 +59,12 @@ const isActive = (st: AgentStatusWord) => st === 'running' || st === 'waiting' |
 const clearFinished = ($: EngineInterface) =>
   update($, agents, list => list.filter(c => isActive(c.status)))
 
+// Switch the main view to an agent's transcript, or back to the main conversation.
+async function viewAgent($: EngineInterface, agentId: string | undefined) {
+  const r = await $.ui.view(agentId === undefined ? {} : { agentId })
+  if (r.deny) $.ui.toast(`Agent Board: can't open that agent (${r.deny})`)
+}
+
 function mapStatus(s: string): AgentStatusWord {
   switch (s) {
     case 'pending':
@@ -391,9 +397,14 @@ export const register: Register = on => {
       }
     }
 
+    const viewing = e.props.view?.agentId
+
     const cards = shown.map((c, i) => {
       const cardH = base + (i < extra ? 1 : 0)
       const inner = cols - 4 // border + padding
+      const isViewed = viewing === c.id
+      const viewLabel = isViewed ? 'Back' : 'View'
+      const head = inner - (viewLabel.length + 5) // room left beside the "[ View ]" button
       const bodyRows = Math.max(0, cardH - 3) // two border rows + header
       const look = statusLook(c)
       const active = isActive(c.status)
@@ -404,12 +415,12 @@ export const register: Register = on => {
       let meta = ''
       for (let k = metaParts.length; k >= 1; k--) {
         const m = metaParts.slice(0, k).reverse().join(' · ')
-        if (inner - 2 - m.length - 2 >= Math.min(c.description.length, 24)) {
+        if (head - 2 - m.length - 2 >= Math.min(c.description.length, 24)) {
           meta = m
           break
         }
       }
-      const descMax = Math.max(8, inner - 2 - (meta ? meta.length + 2 : 0))
+      const descMax = Math.max(8, head - 2 - (meta ? meta.length + 2 : 0))
 
       // Build display lines from the log plus the streaming tail.
       const lines: { kind: BoardLine['kind']; text: string }[] = []
@@ -431,7 +442,7 @@ export const register: Register = on => {
           flexDirection="column"
           height={cardH}
           borderStyle="round"
-          borderColor={active ? look.color : 'gray'}
+          borderColor={isViewed ? 'magenta' : active ? look.color : 'gray'}
           paddingX={1}
           overflow="hidden"
         >
@@ -445,6 +456,12 @@ export const register: Register = on => {
             <Text dimColor wrap="truncate-end">
               {meta ? '  ' + meta : ''}
             </Text>
+            <Box flexGrow={1} />
+            <Button
+              key={`view-${c.id}`}
+              label={viewLabel}
+              onPress={() => viewAgent($, isViewed ? undefined : c.id)}
+            />
           </Box>
           {lines.map(l => (
             <Text
