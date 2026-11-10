@@ -6,7 +6,7 @@ agent's status and task description, then a line with its model, tokens, tool co
 its work: each tool call with its full output underneath (errors in red), streamed text and thinking,
 and its final answer.
 
-![Agent Board panel: three subagent cards showing tool calls with their output and an error in red, the first card in view with a Back button, the second scrolled back with a Latest button, and the Clear completed button](docs/panel.svg)
+![Agent Board panel: three subagent cards, each with a coloured model badge and token count under its title, showing tool calls with their output and an error in red, the first card in view with a Back button, the second scrolled back with a Latest button, and the Clear completed button](docs/panel.svg)
 
 <sub>Illustration of the panel, not a live capture.</sub>
 
