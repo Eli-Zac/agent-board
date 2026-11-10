@@ -113,6 +113,13 @@ const withUsage = (c: AgentCard, u: Usage | null | undefined): AgentCard =>
 const modelColor = (m: string) =>
   /opus/.test(m) ? 'magenta' : /sonnet/.test(m) ? 'blue' : /haiku/.test(m) ? 'green' : /fable/.test(m) ? 'yellow' : 'cyan'
 
+// One card per agent id; the first (the one updates land on) wins.
+const dedupe = (list: readonly AgentCard[]): AgentCard[] => {
+  const seen = new Set<string>()
+  return list.filter(c => (seen.has(c.id) ? false : (seen.add(c.id), true)))
+}
+const hasDuplicates = (list: readonly AgentCard[]) => new Set(list.map(c => c.id)).size !== list.length
+
 const isActive = (st: AgentStatusWord) => st === 'running' || st === 'waiting' || st === 'idle'
 
 async function clearFinished($: EngineInterface) {
@@ -240,7 +247,8 @@ async function flush($: EngineInterface, id: string, force = false) {
 }
 
 // Which cards show and how tall each is, for a pane body of `paneRows` rows.
-function layout(list: readonly AgentCard[], paneRows: number) {
+function layout(all: readonly AgentCard[], paneRows: number) {
+  const list = dedupe(all)
   // Active agents first (oldest first), then finished (newest first).
   const active = list.filter(c => isActive(c.status)).sort((a, b) => a.startedAt - b.startedAt)
   const done = list
@@ -300,13 +308,15 @@ export const register: Register = on => {
           a => !known.has(a.id) && !(hidden[a.id] && !isActive(mapStatus(a.status))),
         )
         for (const a of fresh) if (hidden[a.id]) await undismiss($, a.id)
-        const changed = live.some(a => {
-          const c = list.find(x => x.id === a.id)
-          return c !== undefined && c.status !== mapStatus(a.status)
-        })
-        if (fresh.length > 0 || changed) {
+        const changed = live.some(a =>
+          list.some(c => c.id === a.id && c.status !== mapStatus(a.status)),
+        )
+        if (fresh.length > 0 || changed || hasDuplicates(list)) {
           await update($, agents, cur => {
-            let out = cur.map(c => {
+            // Re-check against the current list: an agent.spawn may have added the
+            // card while we were waiting on the engine, and a second card with the
+            // same id would never receive that agent's updates.
+            let out = dedupe(cur).map(c => {
               const a = live.find(x => x.id === c.id)
               if (!a) return c
               const st = mapStatus(a.status)
@@ -318,6 +328,7 @@ export const register: Register = on => {
               }
             })
             for (const a of fresh) {
+              if (out.some(c => c.id === a.id)) continue
               out = [
                 ...out,
                 newCard(a.id, now, {

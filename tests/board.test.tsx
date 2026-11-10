@@ -223,6 +223,43 @@ test('cleared agents stay cleared while the engine still lists them', async ($, 
   await again.unmount()
 })
 
+test('an agent spawned during a tick gets one card, which finishes', async ($, on) => {
+  const clock = mock.clock(on)
+  let release: () => void = () => {}
+  let asked!: () => void
+  const listAsked = new Promise<void>(r => (asked = r))
+  let live: { id: string; status: string; description: string; type: string }[] = []
+  // The engine's list answers late, after the spawn below has added its card.
+  on('agent.list', async () => {
+    const gate = new Promise<void>(r => (release = r))
+    asked()
+    await gate
+    return { value: live }
+  })
+  on('command.register', () => ({ value: { command: 'agent-board' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  live = [{ id: 'a1', status: 'running', description: 'Cables', type: 'general-purpose' }]
+  const tick = clock.advance(1100)
+  await listAsked // the tick has read the board and is waiting on the engine
+  await $.agent.spawn({ prompt: 'Fix cables', description: 'Cables' })
+  release()
+  await tick
+  await clock.advance(1100) // let the tick's update land
+  await $.turn.complete({ turnId: 't', agentId: 'a1', reason: 'answer', answer: 'Done.' } as never)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const titles = (await ui.findAll({ type: 'Text', text: /Cables/ })).map(t => t.text)
+  expect(titles.length).toBe(1)
+  expect(await ui.find({ key: 'view-a1' })).toBeDefined()
+  expect((await ui.findAll({ type: 'Text', text: /running/ })).map(t => t.text).join()).not.toMatch(/1 running/)
+  await ui.unmount()
+})
+
 test('each card shows its model and tokens', async ($, on) => {
   on('turn.step', async function* (_: unknown, e: { turnId: string; index: number }) {
     yield { kind: 'text', index: 0, text: 'Looking.' } as never

@@ -1,6 +1,6 @@
 {
   "name": "agent-board",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Agent Board: a side panel that shows every subagent of the session live, splitting the full height evenly between them",
   "license": "MIT",
   "types": "./types/index.d.ts"
