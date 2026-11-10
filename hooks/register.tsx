@@ -50,10 +50,25 @@ function wrap(text: string, width: number): string[] {
   for (const raw of text.split('\n')) {
     const line = raw.replace(/\t/g, '  ')
     if (line.length === 0) continue
-    for (let i = 0; i < line.length; i += w) out.push(line.slice(i, i + w))
+    // Break at the last space that fits; split a word only when it's longer than a line.
+    let rest = line
+    while (rest.length > w) {
+      const cut = rest.lastIndexOf(' ', w)
+      if (cut > 0) {
+        out.push(rest.slice(0, cut))
+        rest = rest.slice(cut + 1)
+      } else {
+        out.push(rest.slice(0, w))
+        rest = rest.slice(w)
+      }
+    }
+    if (rest.length > 0) out.push(rest)
   }
   return out
 }
+
+// The engine's own hand-back tool: the subagent's report, not work it did.
+const HANDBACK = 'SubagentHandback'
 
 function fmtElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -281,19 +296,32 @@ export const register: Register = on => {
     if (r.agentId) {
       const id = r.agentId
       const now = await $.clock.now()
+      const resumed = e.resume !== undefined
+      const prompt = oneLine(e.prompt)
       await update($, agents, list => {
+        const i = list.findIndex(c => c.id === id)
+        if (i !== -1) {
+          // A message woke a finished agent: keep its card, tool count and title.
+          const prev = list[i]!
+          const out = list.slice()
+          out[i] = pushLog(
+            {
+              ...settleLive(prev),
+              status: 'running',
+              endedAt: undefined,
+              model: r.model ?? prev.model,
+            },
+            { kind: 'info', text: (resumed ? '↪ ' : '') + clip(prompt, 300) },
+          )
+          return out
+        }
         const card = newCard(id, now, {
-          description: e.description || clip(oneLine(e.prompt), 60),
+          description: e.description || clip(prompt, 60),
           type: e.subagentType || 'general-purpose',
           model: r.model,
-          log: [{ kind: 'info', text: clip(oneLine(e.prompt), 300) }],
+          log: prompt ? [{ kind: 'info', text: (resumed ? '↪ ' : '') + clip(prompt, 300) }] : [],
         })
-        const i = list.findIndex(c => c.id === id)
-        if (i === -1) return [...list, card]
-        const out = list.slice()
-        const prev = list[i]!
-        out[i] = { ...prev, ...card, startedAt: prev.startedAt, log: [...prev.log, ...card.log] }
-        return out
+        return [...list, card]
       })
       void openBoard($)
     }
@@ -342,6 +370,15 @@ export const register: Register = on => {
     const id = e.agentId
     if (id === undefined) return next(e)
     const input = e as unknown as Record<string, unknown>
+    if (e.tool === HANDBACK) {
+      // Show the report as the agent's answer, not as a tool call with output.
+      await patch($, id, c => settleLive(c))
+      const ran = await next(e)
+      const fromInput = ['report', 'text', 'message', 'content'].map(k => input[k]).find(v => typeof v === 'string')
+      const report = (ran.text ?? (fromInput as string | undefined) ?? '').trim()
+      if (report) await patch($, id, c => pushLog(c, { kind: 'text', text: report.slice(-TEXT_MAX) }))
+      return ran
+    }
     const label = clip(summarizeTool(e.tool, input), 400)
     await patch($, id, c =>
       pushLog({ ...settleLive(c), tools: c.tools + 1, status: 'running' }, { kind: 'tool', text: '▸ ' + label }),
@@ -371,7 +408,8 @@ export const register: Register = on => {
         let card = settleLive(c)
         const ans = e.answer.trim()
         const last = card.log[card.log.length - 1]
-        if (ans && !(last && last.kind === 'text' && ans.endsWith(last.text.slice(-50)))) {
+        const said = (t: string) => oneLine(t).slice(-50)
+        if (ans && !(last && last.kind === 'text' && oneLine(ans).endsWith(said(last.text)))) {
           card = pushLog(card, { kind: 'text', text: ans.slice(-TEXT_MAX) })
         }
         return { ...card, status, endedAt: now }
@@ -470,7 +508,7 @@ export const register: Register = on => {
       const elapsed = fmtElapsed((c.endedAt ?? now) - c.startedAt)
       // Description gets priority; metadata pieces drop off as the pane narrows.
       const model = c.model ? c.model.replace(/^claude-/, '') : ''
-      const metaParts = [elapsed, `${c.tools} tools`, c.type, model].filter(Boolean)
+      const metaParts = [elapsed, `${c.tools} tool${c.tools === 1 ? '' : 's'}`, c.type, model].filter(Boolean)
       let meta = ''
       for (let k = metaParts.length; k >= 1; k--) {
         const m = metaParts.slice(0, k).reverse().join(' · ')

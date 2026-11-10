@@ -142,3 +142,56 @@ test('a tool call shows its output under the command, and errors show too', asyn
     await ui.unmount()
   }
 })
+
+const boot = async ($: any, on: any, toolText = '') => {
+  mock.clock(on)
+  on('tool.call', () => ({ result: {}, text: toolText }))
+  on('agent.list', () => ({ value: [] }))
+  on('command.register', () => ({ value: { command: 'agent-board' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'a1' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+}
+
+test('the hand-back report shows as the answer, not as a tool call', async ($, on) => {
+  await boot($, on, 'Only parts.tsx changed.')
+  await $.agent.spawn({ prompt: 'Test models', description: 'Test models' })
+  await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'SubagentHandback', agentId: 'a1' } as never)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.some(t => /SubagentHandback/.test(t))).toBe(false)
+  expect(texts).toContain('Only parts.tsx changed.')
+  expect(texts.some(t => /1 tool(?!s)/.test(t))).toBe(true)
+  await ui.unmount()
+})
+
+test('long text wraps at spaces, not mid-word', async ($, on) => {
+  const words = 'there is nothing further to do here and the report has been delivered already'
+  await boot($, on, words)
+  await $.agent.spawn({ prompt: 'x', description: 'Wrap' })
+  await $.tool.call({ tool: 'SubagentHandback', agentId: 'a1' } as never)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 24 } })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const body = texts.filter(t => words.includes(t.trim()) && t.trim().length > 0)
+  expect(body.join(' ')).toBe(words)
+  await ui.unmount()
+})
+
+test('a resumed agent keeps its title and tool count and runs again', async ($, on) => {
+  await boot($, on)
+  await $.agent.spawn({ prompt: 'Browser-test the models', description: 'Browser-test 3D models' })
+  await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'pwd', agentId: 'a1' } as never)
+  await $.agent.spawn({ prompt: 'ok you are done', resume: { agentId: 'a1' } } as never)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts.some(t => /Browser-test 3D models/.test(t))).toBe(true)
+  expect(texts.some(t => /2 tools/.test(t))).toBe(true)
+  expect(texts).toContain('↪ ok you are done')
+  await ui.unmount()
+})
