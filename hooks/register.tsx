@@ -9,7 +9,7 @@ const MAX_LOG = 300 // entries kept per card
 const CARD_CHARS = 120_000 // total text kept per card; oldest entries go first
 const OUT_MAX = 4000 // one tool output: head and tail kept past this
 const TEXT_MAX = 8000 // one block of streamed text or thinking
-const MIN_CARD_ROWS = 4
+const MIN_CARD_ROWS = 5
 
 // Bump the tag whenever AgentCard's fields change: stored values outlive a reload.
 const agents = atom({ plugin: 'agent-board', key: 'agents' } as const, [], {
@@ -81,6 +81,14 @@ function fmtElapsed(ms: number): string {
   if (m < 60) return `${m}m${String(s % 60).padStart(2, '0')}s`
   return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
 }
+
+function fmtTokens(n: number): string {
+  if (n < 1000) return `${n} tokens`
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 100_000 ? 1 : 0).replace(/\.0$/, '')}k tokens`
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tokens`
+}
+
+const shortModel = (m: string) => m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 
 const isActive = (st: AgentStatusWord) => st === 'running' || st === 'waiting' || st === 'idle'
 
@@ -360,6 +368,7 @@ export const register: Register = on => {
     const id = e.agentId
     if (id === undefined) return yield* next(e)
 
+    if (e.model) await patch($, id, c => (c.model === e.model ? c : { ...c, model: e.model }))
     const stream = next(e)
     let result
     for (;;) {
@@ -388,7 +397,14 @@ export const register: Register = on => {
       yield chunk
     }
     await flush($, id, true)
-    await patch($, id, c => settleLive(c))
+    const u = result?.usage
+    await patch($, id, c => {
+      const card = settleLive(c)
+      if (!u) return card
+      const tokens =
+        u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+      return { ...card, tokens, model: u.model || card.model }
+    })
     return result
   })
 
@@ -529,22 +545,21 @@ export const register: Register = on => {
       const isViewed = viewing === c.id
       const viewLabel = isViewed ? 'Back' : 'View'
       const head = inner - (viewLabel.length + 5) // room left beside the "[ View ]" button
-      const bodyRows = Math.max(0, cardH - 3) // two border rows + header
+      const bodyRows = Math.max(0, cardH - 4) // two border rows, title and details lines
       const look = statusLook(c)
       const active = isActive(c.status)
       const elapsed = fmtElapsed((c.endedAt ?? now) - c.startedAt)
-      // Description gets priority; metadata pieces drop off as the pane narrows.
-      const model = c.model ? c.model.replace(/^claude-/, '') : ''
-      const metaParts = [elapsed, `${c.tools} tool${c.tools === 1 ? '' : 's'}`, c.type, model].filter(Boolean)
-      let meta = ''
-      for (let k = metaParts.length; k >= 1; k--) {
-        const m = metaParts.slice(0, k).reverse().join(' · ')
-        if (head - 2 - m.length - 2 >= Math.min(c.description.length, 24)) {
-          meta = m
-          break
-        }
-      }
-      const descMax = Math.max(8, head - 2 - (meta ? meta.length + 2 : 0))
+      // The details line: model and tokens first, so they stay when it's cut short.
+      const meta = [
+        c.model ? shortModel(c.model) : 'model …',
+        c.tokens !== undefined ? fmtTokens(c.tokens) : undefined,
+        `${c.tools} tool${c.tools === 1 ? '' : 's'}`,
+        elapsed,
+        c.type,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      const descMax = Math.max(8, head - 2)
 
       // Every line of the card's history, wrapped to the card's width.
       const all: { kind: BoardLine['kind']; text: string }[] = []
@@ -587,9 +602,6 @@ export const register: Register = on => {
             <Text bold={active} dimColor={!active} wrap="truncate-end">
               {clip(c.description, descMax)}
             </Text>
-            <Text dimColor wrap="truncate-end">
-              {meta ? '  ' + meta : ''}
-            </Text>
             <Box flexGrow={1} />
             <Button
               key={`view-${c.id}`}
@@ -597,6 +609,9 @@ export const register: Register = on => {
               onPress={() => viewAgent($, isViewed ? undefined : c.id)}
             />
           </Box>
+          <Text dimColor wrap="truncate-end">
+            {clip('  ' + meta, inner)}
+          </Text>
           {lines.map(l => (
             <Text
               wrap="truncate-end"

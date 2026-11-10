@@ -10,6 +10,8 @@ export type AgentCard = {
   startedAt: number
   endedAt?: number
   tools: number
+  /** Tokens in the agent's latest model call: input (cached or not) plus output. */
+  tokens?: number
   log: BoardLine[]
   live: string
   liveKind: 'text' | 'think' | 'none'

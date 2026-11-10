@@ -222,3 +222,23 @@ test('cleared agents stay cleared while the engine still lists them', async ($, 
   expect(await again.find({ type: 'Text', text: /All done/ })).toBeDefined()
   await again.unmount()
 })
+
+test('each card shows its model and tokens', async ($, on) => {
+  on('turn.step', async function* (_: unknown, e: { turnId: string; index: number }) {
+    yield { kind: 'text', index: 0, text: 'Looking.' } as never
+    return {
+      turnId: e.turnId, index: e.index, answer: 'Looking.', toolUses: [], stopReason: 'end_turn',
+      usage: { model: 'claude-sonnet-5-5', input_tokens: 1200, output_tokens: 300,
+        cache_read_input_tokens: 40000, cache_creation_input_tokens: 0 },
+    } as never
+  })
+  await boot($, on)
+  await $.agent.spawn({ prompt: 'x', description: 'Scan' })
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, agentId: 'a1', model: 'claude-sonnet-5-5' } as never)) void _
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 40 } })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const meta = texts.find(t => /sonnet-5-5/.test(t))
+  expect(meta).toContain('41.5k tokens')
+  await ui.unmount()
+})

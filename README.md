@@ -2,7 +2,7 @@
 
 A Claude Code mod that opens a side panel called **Agent Board** in every session. Each subagent the
 session starts gets its own card, and the cards split the panel's full height evenly. A card shows the
-agent's status, task description, type, model, tool count and elapsed time, followed by a live feed of
+agent's status and task description, then a line with its model, tokens, tool count, elapsed time and type, followed by a live feed of
 its work: each tool call with its full output underneath (errors in red), streamed text and thinking,
 and its final answer.
 
