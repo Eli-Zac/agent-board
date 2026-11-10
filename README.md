@@ -28,3 +28,7 @@ claude plugin install agent-board --marketplace Eli-Zac/agent-board
 ```
 
 In the desktop app: click + next to the prompt box, then Plugins, Add marketplace with `Eli-Zac/agent-board`, then Add plugin.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
